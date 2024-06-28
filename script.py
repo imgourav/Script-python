@@ -43,26 +43,44 @@ def on_click(x, y, button, pressed):
 mouse_listener = mouse.Listener(on_click=on_click)
 
 # Function to switch between opened tabs and windows
-def switch_windows(min_wait=2, max_wait=4):
-    wait_options = list(range(min_wait, max_wait + 1))
+def switch_windows():
     action_weights = [
         (pyautogui.hotkey, ['ctrl', 'pgdn'], 3),
         (pyautogui.hotkey, ['alt', 'shift', 'tab'], 2),
-        (simulate_scroll, [], 2)
+        (perform_actions_concurrently, [], 3)  
     ]
 
     while not exit_event.is_set():
         if pause_event.is_set():
-            pause_event.wait()
+            time.sleep(1)
             continue
-        
-        wait_time = random.choice(wait_options)
-        action_func, action_args, weight = random.choices(action_weights, cum_weights=[sum(w for _, _, w in action_weights[:i+1]) for i in range(len(action_weights))], k=1)[0]
+
+        action_func, action_args, weight = random.choices(
+            action_weights,
+            cum_weights=[sum(w for _, _, w in action_weights[:i+1]) for i in range(len(action_weights))],
+            k=1
+        )[0]
         action_func(*action_args)
-        exit_event.wait(wait_time)
+        time.sleep(3)
+
+def perform_actions_concurrently():
+    threads = [
+        threading.Thread(target=press_ctrl_randomly),
+        threading.Thread(target=simulate_scroll)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+def press_ctrl_randomly():
+    times = random.randint(1, 3)
+    for _ in range(times):
+        pyautogui.press('capslock')
+        time.sleep(0.1)
 
 def simulate_scroll():
-    scroll_amount = random.randint(-3000, 3000)
+    scroll_amount = random.randint(-3000,1000)
     try:
         pyautogui.scroll(scroll_amount)
     except pyautogui.FailSafeException:
@@ -136,12 +154,6 @@ def ask_duration():
         else:
             root.destroy()
 
-    def on_shutdown_var_changed(*args):
-        if shutdown_var.get():
-            start_button.config(state=DISABLED)
-        else:
-            start_button.config(state=NORMAL)
-
     def update_start_button_text(event=None):
         if a.get():
             start_button.config(text="Start")
@@ -165,7 +177,6 @@ def ask_duration():
     a.bind("<KeyRelease>", update_start_button_text)
 
     shutdown_var = BooleanVar()
-    shutdown_var.trace_add("write", on_shutdown_var_changed)
     shutdown_checkbox = ttk.Checkbutton(frame, text="Shutdown system after completion", variable=shutdown_var, cursor="hand2")
     shutdown_checkbox.grid(row=2, column=0, columnspan=2, pady=5)
 
@@ -201,29 +212,29 @@ def create_image():
 
 def on_pause(icon, item):
     pause_event.set()
-    icon.update_menu()
+    update_menu("Resume", on_resume)
     print("Script paused")
 
 def on_resume(icon, item):
     pause_event.clear()
-    icon.update_menu()
+    update_menu("Pause", on_pause)
     print("Script resumed")
+
+def update_menu(label, action):
+    global icon
+    icon.menu = pystray.Menu(
+        pystray.MenuItem(label, action),
+        pystray.MenuItem("Exit", on_quit)
+    )
+    icon.update_menu()
 
 def setup_tray_icon():
     global icon
     icon = pystray.Icon("test_icon")
-
-    def get_menu_items():
-        return (
-            pystray.MenuItem("Resume" if pause_event.is_set() else "Pause", 
-                             on_resume if pause_event.is_set() else on_pause),
-            pystray.MenuItem("Exit", on_quit)
-        )
-
-    icon.menu = pystray.Menu(get_menu_items)
+    update_menu("Pause", on_pause)
     icon.icon = create_image()
     icon.title = "excel-tech"
-    icon.run()
+    threading.Thread(target=icon.run, daemon=True).start()
 
 def on_quit(icon, item):
     icon.stop()
